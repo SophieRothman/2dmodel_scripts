@@ -13,28 +13,29 @@ from landlab.components import PriorityFloodFlowRouter
 from landlab.components import SpaceLargeScaleEroder  # SPACE model
 
 # BedrockLandslider model
-from landlab.components import BedrockLandslider  # BedrockLandslider model
+from landlab.components import BedrockLandslider, ChannelProfiler  # BedrockLandslider model
 
 ## Import Landlab utilities
-from landlab import RasterModelGrid  # Grid utility
+
+from landlab import RasterModelGrid # Grid utility
 from landlab import imshowhs_grid, imshow_grid  # For plotting results; optional
 #%%
 # Set grid parameters
-num_rows = 50
-num_columns = 50
-node_spacing = 25.0
+nr = 50
+nc = 50
+dx = 25
 
 # track sediment flux at the node adjacent to the outlet at lower-left
-node_next_to_outlet = num_columns + 1
+node_next_to_outlet = nc + 1
 
 # Instantiate model grid
-mg1 = RasterModelGrid((num_rows, num_columns), node_spacing)
-mg2 = RasterModelGrid((num_rows, num_columns), node_spacing)
-mg3 = RasterModelGrid((num_rows, num_columns), node_spacing)
+mg1 = RasterModelGrid((nr, nc),dx)
+mg2 = RasterModelGrid((nr, nc),dx)
+mg3 = RasterModelGrid((nr, nc),dx)
 # add field ’topographic elevation’ to the grid
-mg1.add_zeros("node", "topographic__elevation")
-mg2.add_zeros("node", "topographic__elevation")
-mg3.add_zeros("node", "topographic__elevation")
+z1=mg1.add_zeros("node", "topographic__elevation")
+z2=mg2.add_zeros("node", "topographic__elevation")
+z3=mg3.add_zeros("node", "topographic__elevation")
 # set constant random seed for consistent topographic roughness
 np.random.seed(seed=5000)
 
@@ -103,9 +104,13 @@ fr2 = PriorityFloodFlowRouter(mg2, flow_metric="D8", suppress_out= True)
 fr3 = PriorityFloodFlowRouter(mg3, flow_metric="D8", suppress_out= True)
 #Space variables for fast waterfalls
 # range of K and max slope for slp-K linear scaling
-K_min = float(0.83e-5)
-K_max = float(7.5e-5)
-K_mid = float(2.5e-5)
+Ks_min=float(0.5e-4)
+Ks_max=float(5e-4)
+Ks_mid=float(2e-4)
+
+K_min = float(0.5e-5)
+K_max = float(2e-5)
+K_mid = float(1e-5)
 max_slp = 0.05
 min_slp = 0.02
 # Instantiate SPACE model with chosen parameters
@@ -116,9 +121,18 @@ K1[:] = K_mid
 K2[:] = K_mid
 K3[:] = K_mid
 
+K_sed1 = mg1.add_ones("sed_erodibility", at="node", clobber=True)
+K_sed2 = mg2.add_ones("sed_erodibility", at="node", clobber=True)
+K_sed3 = mg3.add_ones("sed_erodibility", at="node", clobber=True)
+
+K_sed1[:] = K_mid
+K_sed2[:] = K_mid
+K_sed3[:] = K_mid
+
+
 sp1 = SpaceLargeScaleEroder(
     mg1,
-    K_sed=5e-5,
+    K_sed=K_sed1, #7.5e-5,
     K_br=K1,#"bedrock_erodibility",
     F_f=0.0,
     phi=0.0,
@@ -132,7 +146,7 @@ sp1 = SpaceLargeScaleEroder(
 
 sp2 = SpaceLargeScaleEroder(
     mg2,
-    K_sed=5e-5,
+    K_sed=K_sed2,
     K_br=K2,
     F_f=0.0,
     phi=0.0,
@@ -146,7 +160,7 @@ sp2 = SpaceLargeScaleEroder(
 
 sp3 = SpaceLargeScaleEroder(
     mg3,
-    K_sed=5e-5,
+    K_sed=K_sed3,
     K_br=K3,
     F_f=0.0,
     phi=0.0,
@@ -157,6 +171,34 @@ sp3 = SpaceLargeScaleEroder(
     sp_crit_sed=0,
     sp_crit_br=0,
 )
+#%%%
+m=0.5
+n=1
+da1=mg1.at_node["drainage_area"].copy()
+da2=mg2.at_node["drainage_area"].copy()
+da3=mg3.at_node["drainage_area"].copy()
+
+slp1 = mg1.at_node["topographic__steepest_slope"].copy()
+slp2 = mg2.at_node["topographic__steepest_slope"].copy()
+slp3 = mg3.at_node["topographic__steepest_slope"].copy()
+
+stpow1=mg1.add_zeros("node", "stream_power")
+stpow2=mg2.add_zeros("node", "stream_power")
+stpow3=mg3.add_zeros("node", "stream_power")
+
+stpow1=da1**0.5 * slp1**n
+stpow2=da2**0.5 * slp2**n
+stpow3=da3**0.5 * slp3**n
+
+plt.figure()
+imshow_grid(mg1,
+            da1,
+            plot_name="with slow waterfall rule",
+            #vmin=60,
+            #vmax=120,
+            cmap='winter') 
+
+
 #%%
 # Set model timestep
 timestep = 1e3  # years
@@ -202,12 +244,22 @@ while elapsed_time < run_time:  # time units of years
     slp1 = mg1.at_node["topographic__steepest_slope"].copy()
     slp2 = mg2.at_node["topographic__steepest_slope"].copy()
     slp3 = mg3.at_node["topographic__steepest_slope"].copy()
+
+    da1=mg1.at_node["drainage_area"].copy()
+    da2=mg2.at_node["drainage_area"].copy()
+    da3=mg3.at_node["drainage_area"].copy()
     
     mg2.at_node["bedrock_erodibility"][slp2>max_slp] = K_max
     mg2.at_node["bedrock_erodibility"][slp2<=max_slp] = K_mid
 
     mg3.at_node["bedrock_erodibility"][slp3>max_slp] = K_min
     mg3.at_node["bedrock_erodibility"][slp3<=max_slp] = K_mid
+    
+    mg2.at_node["sed_erodibility"][slp2>max_slp] = Ks_max
+    mg2.at_node["sed_erodibility"][slp2<=max_slp] = K_mid
+
+    mg3.at_node["sed_erodibility"][slp3>max_slp] = Ks_min
+    mg3.at_node["sed_erodibility"][slp3<=max_slp] = K_mid
     
 
     # Run SPACE for one time step
@@ -236,4 +288,215 @@ while elapsed_time < run_time:  # time units of years
         imshow_grid(mg3, 'topographic__elevation', plot_name="slow waterfalls", cmap = cmap, colorbar_label="Elevation (m)")
 
         plt.show()
+#%%
+#Producing images of the rasters
+elev_max = max(z1.max(), z2.max(), z3.max())
+
+plt.figure()
+imshow_grid(mg1,
+            z1,
+            plot_name="baseline",
+            vmin=0,
+            vmax=elev_max,
+            cmap='gist_earth')
+plt.figure()
+imshow_grid(mg2,
+            z2,
+            plot_name="with fast waterfall rule",
+            vmin=0,
+            vmax=elev_max,
+            cmap='gist_earth')
+
+plt.figure()
+imshow_grid(mg3,
+            z3,
+            plot_name="with slow waterfall rule",
+            vmin=0,
+            vmax=elev_max,
+            cmap='gist_earth') 
         
+ 
+#%%
+#Channel profiles
+cp1 = ChannelProfiler(mg1, number_of_watersheds=4, main_channel_only=True)
+cp1.run_one_step()
+
+cp2 = ChannelProfiler(mg2, number_of_watersheds=4, main_channel_only=True)
+cp2.run_one_step()
+
+cp3 = ChannelProfiler(mg3, number_of_watersheds=4, main_channel_only=True)
+cp3.run_one_step()
+
+fig, ax = plt.subplots(nrows=2, ncols=3, figsize=(10,8))
+
+plt.axes(ax[0, 0])
+cp1.plot_profiles()
+ax[0, 0].set_title("baseline")
+ax[0, 0].set_ylim([0, elev_max])
+plt.ylabel('Elevation (m)')
+plt.xlabel(' Distance Along Profile (m)')
+
+plt.axes(ax[0, 1])
+cp2.plot_profiles()
+ax[0, 1].set_title("with increase in K with slope")
+ax[0, 1].set_ylim([0, elev_max])
+plt.ylabel('Elevation (m)')
+plt.xlabel(' Distance Along Profile (m)')
+
+plt.axes(ax[0, 2])
+cp3.plot_profiles()
+ax[0, 2].set_title("with decrease in K with slope")
+ax[0, 2].set_ylim([0, elev_max])
+plt.ylabel('Elevation (m)')
+plt.xlabel(' Distance Along Profile (m)')
+plt.axes(ax[1, 0])
+cp1.plot_profiles_in_map_view()
+plt.tight_layout()
+
+plt.axes(ax[1, 1])
+cp2.plot_profiles_in_map_view()
+
+plt.axes(ax[1, 2])
+cp3.plot_profiles_in_map_view()
+#%%Pulling out a profile as an array
+fig, ax = plt.subplots(nrows=2, ncols=3, figsize=(10,4))
+nowfprf={}
+for i, outlet_id in enumerate(cp1.data_structure):
+    nowfprf['dist'+str(i)]=np.zeros(0)
+    #slowelev1=np.zeros(0)
+    for j, segment_id in enumerate(cp1.data_structure[outlet_id]):
+        totprof = cp1.data_structure[outlet_id][segment_id]
+        totprofid=totprof["ids"]
+    
+        nowfprf['elev'+str(i)]=mg1.at_node['topographic__elevation'][totprofid]
+        dist=cp1.data_structure[outlet_id][segment_id]["distances"]
+        nowfprf['da'+str(i)]=mg1.at_node['drainage_area'][totprofid]
+        
+        nowfprf['dist'+str(i)] = np.concatenate((nowfprf['dist'+str(i)], dist))
+    Nnodes=len(nowfprf['elev'+str(i)])
+    nowfprf['slope'+str(i)]=np.zeros(Nnodes)
+    nowfprf['slope'+str(i)][1:(Nnodes)] = (1/dx)*(nowfprf['elev'+str(i)][1:(Nnodes)] - nowfprf['elev'+str(i)][0:(Nnodes-1)]) 
+
+for i in range(0,4):
+    plt.axes(ax[0,0])
+    plt.plot(nowfprf['dist'+str(i)], nowfprf['elev'+str(i)])
+    plt.title('No WFs')
+    plt.xlabel('Distance Upstream (m)')
+    plt.ylabel('Elevation (m)')
+    plt.ylim(0,250)
+    plt.axes(ax[1,0])
+    plt.plot(nowfprf['dist'+str(i)], nowfprf['slope'+str(i)])    
+    plt.xlabel('Distance Upstream (m)')
+    plt.ylabel('Slope (m/m)')
+    plt.axhline(y=0.05)
+
+    
+fastwfprf={}
+for i, outlet_id in enumerate(cp2.data_structure):
+    fastwfprf['dist'+str(i)]=np.zeros(0)
+    #slowelev1=np.zeros(0)
+    for j, segment_id in enumerate(cp2.data_structure[outlet_id]):
+        totprof = cp2.data_structure[outlet_id][segment_id]
+        totprofid=totprof["ids"]
+    
+        fastwfprf['elev'+str(i)]=mg2.at_node['topographic__elevation'][totprofid]
+        fastwfprf['da'+str(i)]=mg2.at_node['drainage_area'][totprofid]
+        dist=cp2.data_structure[outlet_id][segment_id]["distances"]
+        
+        fastwfprf['dist'+str(i)] = np.concatenate((fastwfprf['dist'+str(i)], dist))
+    Nnodes=len(fastwfprf['elev'+str(i)])
+    fastwfprf['slope'+str(i)]=np.zeros(Nnodes)
+    fastwfprf['slope'+str(i)][1:(Nnodes)] = (1/dx)*(fastwfprf['elev'+str(i)][1:(Nnodes)] - fastwfprf['elev'+str(i)][0:(Nnodes-1)]) 
+
+
+for i in range(0,4):
+    plt.axes(ax[0,1])
+    plt.plot(fastwfprf['dist'+str(i)], fastwfprf['elev'+str(i)])
+    plt.title('Fast WFs')
+    plt.xlabel('Distance Upstream (m)')
+    plt.ylabel('Elevation (m)')
+    plt.ylim(0,250)
+    plt.axes(ax[1,1])
+    plt.plot(fastwfprf['dist'+str(i)], fastwfprf['slope'+str(i)])    
+    plt.xlabel('Distance Upstream (m)')
+    plt.ylabel('Slope (m/m)')
+    plt.axhline(y=0.05)
+
+    
+slowwfprf={}
+for i, outlet_id in enumerate(cp3.data_structure):
+    slowwfprf['dist'+str(i)]=np.zeros(0)
+    #slowelev1=np.zeros(0)
+    for j, segment_id in enumerate(cp3.data_structure[outlet_id]):
+        totprof = cp3.data_structure[outlet_id][segment_id]
+        totprofid=totprof["ids"]
+    
+        slowwfprf['elev'+str(i)]=mg3.at_node['topographic__elevation'][totprofid]
+        dist=cp3.data_structure[outlet_id][segment_id]["distances"]
+        slowwfprf['da'+str(i)]= mg3.at_node['drainage_area'][totprofid]
+        slowwfprf['dist'+str(i)] = np.concatenate((slowwfprf['dist'+str(i)], dist))
+    Nnodes=len(slowwfprf['elev'+str(i)])
+    slowwfprf['slope'+str(i)]=np.zeros(Nnodes)
+    slowwfprf['slope'+str(i)][1:(Nnodes)] = (1/dx)*(slowwfprf['elev'+str(i)][1:(Nnodes)] - slowwfprf['elev'+str(i)][0:(Nnodes-1)]) 
+
+for i in range(0,4):
+    plt.axes(ax[0,2])
+    plt.plot(slowwfprf['dist'+str(i)], slowwfprf['elev'+str(i)])
+    plt.title('Slow WFs')
+    plt.xlabel('Distance Upstream (m)')
+    plt.ylabel('Elevation (m)')
+    plt.ylim(0,250)
+    plt.axes(ax[1,2])
+    plt.plot(slowwfprf['dist'+str(i)], slowwfprf['slope'+str(i)])    
+    plt.xlabel('Distance Upstream (m)')
+    plt.ylabel('Slope (m/m)')
+    plt.axhline(y=0.05)
+    
+    #%% zoom in on dynamic zone
+    for i in range(0,4):
+
+
+        #plt.plot(fastwfprf['dist'+str(i)][min(np.where(fastwfprf['dist'+str(i)]>50)[0]):], fastwfprf['slope'+str(i)][min(np.where(fastwfprf['dist'+str(i)]>50)[0]):])    
+        plt.plot(fastwfprf['dist'+str(i)], fastwfprf['slope'+str(i)])
+        #min(np.where(fastwfprf['dist'+str(i)]>=1850)[0])
+        plt.xlabel('Distance Upstream (m)')
+        plt.ylabel('Slope (m/m)')
+        plt.axhline(y=0.05)
+        plt.ylim(-.1, .2)
+        plt.xlim(0,700)
+#%% run one step to mess with the dynamic zone
+mg1.at_node["bedrock__elevation"][mg1.core_nodes] += U * timestep
+mg1.at_node["topographic__elevation"][:] = (
+    mg1.at_node["bedrock__elevation"] + mg1.at_node["soil__depth"]
+)
+mg2.at_node["bedrock__elevation"][mg2.core_nodes] += U * timestep
+mg2.at_node["topographic__elevation"][:] = (
+    mg2.at_node["bedrock__elevation"] + mg2.at_node["soil__depth"]
+)
+mg3.at_node["bedrock__elevation"][mg3.core_nodes] += U * timestep
+mg3.at_node["topographic__elevation"][:] = (
+    mg3.at_node["bedrock__elevation"] + mg3.at_node["soil__depth"]
+)
+fr1.run_one_step()
+fr2.run_one_step()
+fr3.run_one_step()
+
+slp1 = mg1.at_node["topographic__steepest_slope"].copy()
+slp2 = mg2.at_node["topographic__steepest_slope"].copy()
+slp3 = mg3.at_node["topographic__steepest_slope"].copy()
+
+mg2.at_node["bedrock_erodibility"][slp2>max_slp] = K_max
+mg2.at_node["bedrock_erodibility"][slp2<=max_slp] = K_mid
+
+mg3.at_node["bedrock_erodibility"][slp3>max_slp] = K_min
+mg3.at_node["bedrock_erodibility"][slp3<=max_slp] = K_mid
+
+
+# Run SPACE for one time step
+sp1.run_one_step(dt=timestep)
+sp2.run_one_step(dt=timestep)
+sp3.run_one_step(dt=timestep)
+
+cp1.run_one_step()
+cp2.run_one_step()
+cp3.run_one_step()
