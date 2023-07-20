@@ -4,14 +4,15 @@
 import matplotlib.pylab as plt
 import numpy as np
 #import holoviews as hv
-from landlab import HexModelGrid, RasterModelGrid
+from landlab import  RasterModelGrid
 from landlab.plot.graph import plot_graph
 from landlab.components import LinearDiffuser, TaylorNonLinearDiffuser
-from landlab.components import FlowAccumulator, FastscapeEroder
+from landlab.components import FlowAccumulator, FastscapeEroder, PriorityFloodFlowRouter
 
 
 from landlab import RasterModelGrid, imshow_grid
 from landlab.components import FlowAccumulator, LinearDiffuser, FastscapeEroder, ChannelProfiler
+from landlab.components import ChiFinder
 
 import rasterio
 
@@ -57,15 +58,14 @@ with rasterio.open(r"C:\Users\soph1\Downloads\outputmodel.tif", 'w',
 #%%
 #grid = HexModelGrid((20, 10), 50)
 
-nr = 70
-nc = 80
-dx = 50
+nr = 60
+nc = 50
+dx = 75
 
-np.random.seed(42)
+np.random.seed(5000)
 grid1 = RasterModelGrid((nr, nc), dx)
 grid2 = RasterModelGrid((nr, nc), dx)
 grid3 = RasterModelGrid((nr, nc), dx)
-
 initial_noise = np.random.rand(grid1.core_nodes.size)
 
 z1 = grid1.add_zeros("topographic__elevation", at="node")
@@ -77,22 +77,53 @@ z2[grid2.core_nodes] += initial_noise
 z3 = grid3.add_zeros("topographic__elevation", at="node")
 z3[grid3.core_nodes] += initial_noise
 
+grid1.set_closed_boundaries_at_grid_edges(
+    bottom_is_closed=True,
+    left_is_closed=True,
+    right_is_closed=True,
+    top_is_closed=True,
+)
+grid1.set_watershed_boundary_condition_outlet_id(0, grid1.at_node['topographic__elevation'], -9999.0)
+
+
+grid2.set_closed_boundaries_at_grid_edges(
+    bottom_is_closed=True,
+    left_is_closed=True,
+    right_is_closed=True,
+    top_is_closed=True,
+)
+grid2.set_watershed_boundary_condition_outlet_id(0, grid2.at_node['topographic__elevation'], -9999.0)
+
+
+grid3.set_closed_boundaries_at_grid_edges(
+    bottom_is_closed=True,
+    left_is_closed=True,
+    right_is_closed=True,
+    top_is_closed=True,
+)
+grid3.set_watershed_boundary_condition_outlet_id(0, grid3.at_node['topographic__elevation'], -9999.0)
+
+
+
+
 grid3.imshow("topographic__elevation")
 #%%
 # uplift, diffusivity
-U = 0.003
-D = 0.1
+U = 1e-3
+D = float(2e-4)
 
 # range of K and max slope for slp-K linear scaling
-K_min = 0.0001
-K_max = 0.0004
-K_mid = (K_min + K_max) / 2.
+
+
+K_min = float(0.5e-5)
+K_max = float(2e-5)
+K_mid = float(1e-5)
 max_slp = 0.05
 min_slp = 0.02
 
 # timestep
-total_time = 2e5
-dt = 200
+total_time = 2e6
+dt = 1000
 nts = int(total_time / dt)
 Sc=0.6
 #%%
@@ -116,7 +147,10 @@ z3_out = np.empty((n_out, grid3.shape[0], grid3.shape[1]))
 
 
 #%%
-fa1 = FlowAccumulator(grid1)
+fr1 = PriorityFloodFlowRouter(grid1, flow_metric="D8", suppress_out= True)
+fr2 = PriorityFloodFlowRouter(grid2, flow_metric="D8", suppress_out= True)
+fr3 = PriorityFloodFlowRouter(grid3, flow_metric="D8", suppress_out= True)
+
 sp1 = FastscapeEroder(grid1, K_sp="water_erodibility")
 #nl1 = PerronNLDiffuse(grid1, 
 #                      nonlinear_diffusivity=D,
@@ -128,22 +162,49 @@ tnld1 = TaylorNonLinearDiffuser(
 )
 
 
-fa2 = FlowAccumulator(grid2)
+
 sp2 = FastscapeEroder(grid2, K_sp="water_erodibility")
 tnld2 = TaylorNonLinearDiffuser(
     grid2, linear_diffusivity=D, slope_crit=Sc, dynamic_dt=True, nterms=2
 )
 
 
-fa3 = FlowAccumulator(grid3)
+
 sp3 = FastscapeEroder(grid3, K_sp="water_erodibility")
 tnld3 = TaylorNonLinearDiffuser(
     grid3, linear_diffusivity=D, slope_crit=Sc, dynamic_dt=True, nterms=2
 )
 
 #ld3 = LinearDiffuser(grid3, linear_diffusivity=D)
+
+#%% Chi Calaculations
+cf1 = ChiFinder(
+     grid1,
+     min_drainage_area=500000.,
+     use_true_dx=True,
+     reference_concavity=0.5,
+     reference_area=grid1.at_node['drainage_area'].max(),
+     clobber=True)
+
+cf2 = ChiFinder(
+     grid2,
+     min_drainage_area=500000.,
+     use_true_dx=True,
+     reference_concavity=0.5,
+     reference_area=grid2.at_node['drainage_area'].max(),
+     clobber=True)
+
+cf3 = ChiFinder(
+     grid3,
+     min_drainage_area=500000.,
+     use_true_dx=True,
+     reference_concavity=0.5,
+     reference_area=grid3.at_node['drainage_area'].max(),
+     clobber=True)
+
 #%%
 #Running the model
+elapsed_time=0.0
 for i in range(0,nts):
 
     # run first half with uplift of U
@@ -158,9 +219,9 @@ for i in range(0,nts):
     z3[grid3.core_nodes] += U * dt * factor
 
     # topographic__steepest_slope is update in fa.r1s()
-    fa1.run_one_step()
-    fa2.run_one_step()
-    fa3.run_one_step()
+    fr1.run_one_step()
+    fr2.run_one_step()
+    fr3.run_one_step()
 
     # now we want to update K.
     # say that a waterfall is anything above max_slp
@@ -177,19 +238,31 @@ for i in range(0,nts):
    # grid2.at_node["water_erodibility"][:] = K_mid + (K_max - K_mid) * (
    #     slp2 - min_slp) / (max_slp - min_slp)
     
-    grid2.at_node["water_erodibility"][slp2>max_slp] = K_max
-    grid2.at_node["water_erodibility"][slp2<=max_slp] = K_mid
+    #grid2.at_node["water_erodibility"][slp2>max_slp] = K_max
+    #grid2.at_node["water_erodibility"][slp2<=max_slp] = K_mid
     
     # we'll also make K highest when slopes are shallowest and lowest when steepest.
     slp3 = grid3.at_node["topographic__steepest_slope"].copy()
+    slp1 = grid1.at_node["topographic__steepest_slope"].copy()
+    da3 = grid3.at_node["drainage_area"].copy()
+    da2 = grid2.at_node["drainage_area"].copy()
+
+    
+    grid2.at_node["water_erodibility"][:] = K_mid    
+    grid2.at_node["water_erodibility"][(da2>500000) & (slp2>max_slp)] = K_max
+
+
+    grid3.at_node["water_erodibility"][:] = K_mid
+    grid3.at_node["water_erodibility"][(da3>500000) & (slp3>max_slp)] = K_min
+    
     #slp3[slp3 > max_slp] = max_slp
     #slp3[slp3 < min_slp] = min_slp
 
     #grid3.at_node["water_erodibility"][:] = K_mid + (K_min - K_mid) * (
     #    slp3 - min_slp) / (max_slp - min_slp)
     
-    grid3.at_node["water_erodibility"][slp3>max_slp] = K_min
-    grid3.at_node["water_erodibility"][slp3<=max_slp] = K_mid
+    #grid3.at_node["water_erodibility"][slp3>max_slp] = K_min
+    #grid3.at_node["water_erodibility"][slp3<=max_slp] = K_mid
 
     # run stream power and diffusion.
     sp1.run_one_step(dt)
@@ -200,12 +273,29 @@ for i in range(0,nts):
 
     sp3.run_one_step(dt)
     tnld3.run_one_step(dt)
+    elapsed_time+=dt
 
     if i % interval == 0:
         ind = int(i / interval)
         z1_out[ind, :, :] = z1.reshape(grid1.shape)
         z2_out[ind, :, :] = z2.reshape(grid2.shape)
         z3_out[ind, :, :] = z3.reshape(grid3.shape)
+        
+    if np.mod(elapsed_time, (total_time/5))==0:
+        cmap='winter'
+        print('%.2f of model run completed' %(elapsed_time/total_time))
+        plt.figure()
+        imshow_grid(grid1, 'topographic__elevation', plot_name="no waterfalls", cmap = cmap, colorbar_label="Elevation (m)")
+        plt.show()
+        plt.figure()
+        imshow_grid(grid2, 'topographic__elevation', plot_name="fast waterfalls", cmap = cmap, colorbar_label="Elevation (m)")
+
+        plt.show()
+                    
+        plt.figure()
+        imshow_grid(grid3, 'topographic__elevation', plot_name="slow waterfalls", cmap = cmap, colorbar_label="Elevation (m)")
+
+        plt.show()
         
     #%%
 plt.plot(grid1.at_node["topographic__steepest_slope"][grid1.core_nodes],
@@ -226,6 +316,13 @@ plt.ylabel("K")
 
 #%%
 #Producing images of the rasters
+slp1 = grid1.at_node["topographic__steepest_slope"].copy()
+slp2 = grid2.at_node["topographic__steepest_slope"].copy()
+slp3 = grid3.at_node["topographic__steepest_slope"].copy()
+
+da1=grid1.at_node["drainage_area"].copy()
+da2=grid2.at_node["drainage_area"].copy()
+da3=grid3.at_node["drainage_area"].copy()
 elev_max = max(z1.max(), z2.max(), z3.max())
 
 plt.figure()
@@ -234,7 +331,9 @@ imshow_grid(grid1,
             plot_name="baseline",
             vmin=0,
             vmax=elev_max,
-            cmap='gist_earth')
+            cmap='gist_earth')          
+plt.scatter(grid1.x_of_node[(slp1>max_slp) & (da1>500000)], grid1.y_of_node[(slp1>max_slp) & (da1>500000)], c='red',marker='.')
+
 plt.figure()
 imshow_grid(grid2,
             z2,
@@ -242,6 +341,8 @@ imshow_grid(grid2,
             vmin=0,
             vmax=elev_max,
             cmap='gist_earth')
+plt.scatter(grid2.x_of_node[(slp2>max_slp) & (da2>500000)], grid2.y_of_node[(slp2>max_slp) & (da2>500000)], c='red',marker='.')
+
 
 plt.figure()
 imshow_grid(grid3,
@@ -250,6 +351,8 @@ imshow_grid(grid3,
             vmin=0,
             vmax=elev_max,
             cmap='gist_earth')
+plt.scatter(grid3.x_of_node[(slp3>max_slp) & (da3>500000)], grid3.y_of_node[(slp3>max_slp) & (da3>500000)], c='red',marker='.')
+
 
 #%%
 #Steepness maps
@@ -278,46 +381,63 @@ imshow_grid(grid3,
 
 #%%
 #Channel profiles
-cp1 = ChannelProfiler(grid1, number_of_watersheds=4, main_channel_only=True)
+
+numchannel=1;
+
+cp1 = ChannelProfiler(grid1, number_of_watersheds=numchannel, minimum_channel_threshold=500000 ,main_channel_only=True)
 cp1.run_one_step()
 
-cp2 = ChannelProfiler(grid2, number_of_watersheds=4, main_channel_only=True)
+cp2 = ChannelProfiler(grid2, number_of_watersheds=numchannel, minimum_channel_threshold=500000 ,main_channel_only=True)
 cp2.run_one_step()
 
-cp3 = ChannelProfiler(grid3, number_of_watersheds=4, main_channel_only=True)
+cp3 = ChannelProfiler(grid3, number_of_watersheds=numchannel,  minimum_channel_threshold=500000 , main_channel_only=True)
 cp3.run_one_step()
+slp3 = grid3.at_node["topographic__steepest_slope"].copy()
+slp1 = grid1.at_node["topographic__steepest_slope"].copy()
+slp2 = grid2.at_node["topographic__steepest_slope"].copy()
 
-fig, ax = plt.subplots(nrows=2, ncols=3, figsize=(10,8))
+da3 = grid3.at_node["drainage_area"].copy()
+da1 = grid1.at_node["drainage_area"].copy()
+da2 = grid2.at_node["drainage_area"].copy()
+
+
+fig, ax = plt.subplots(nrows=2, ncols=3, figsize=(15,8))
 
 plt.axes(ax[0, 0])
 cp1.plot_profiles()
 ax[0, 0].set_title("baseline")
-ax[0, 0].set_ylim([0, elev_max])
+ax[0, 0].set_ylim([0, 800])
 plt.ylabel('Elevation (m)')
 plt.xlabel(' Distance Along Profile (m)')
 
 plt.axes(ax[0, 1])
 cp2.plot_profiles()
 ax[0, 1].set_title("with increase in K with slope")
-ax[0, 1].set_ylim([0, elev_max])
+ax[0, 1].set_ylim([0, 800])
 plt.ylabel('Elevation (m)')
 plt.xlabel(' Distance Along Profile (m)')
 
 plt.axes(ax[0, 2])
 cp3.plot_profiles()
 ax[0, 2].set_title("with decrease in K with slope")
-ax[0, 2].set_ylim([0, elev_max])
+ax[0, 2].set_ylim([0, 800])
 plt.ylabel('Elevation (m)')
 plt.xlabel(' Distance Along Profile (m)')
 plt.axes(ax[1, 0])
 cp1.plot_profiles_in_map_view()
+plt.scatter(grid1.x_of_node[(slp1>max_slp) & (da1>500000)], grid1.y_of_node[(slp1>max_slp) & (da1>500000)],c='red', marker='.')
+
 plt.tight_layout()
 
 plt.axes(ax[1, 1])
 cp2.plot_profiles_in_map_view()
+plt.scatter(grid1.x_of_node[(slp2>max_slp) & (da2>500000)], grid1.y_of_node[(slp2>max_slp) & (da2>500000)], c='red',marker='.')
+
 
 plt.axes(ax[1, 2])
 cp3.plot_profiles_in_map_view()
+plt.scatter(grid1.x_of_node[(slp3>max_slp) & (da3>500000)], grid1.y_of_node[(slp3>max_slp) & (da3>500000)], c='red', marker='.')
+
 
 #%%
 #plt.loglog(grid1.at_node["drainage_area"],
@@ -340,156 +460,187 @@ plt.xlabel("Area")
 
 #%%
 #Trying to make slope plots
-prf1 = ChannelProfiler(
-    grid1,
-    number_of_watersheds=4,
-    main_channel_only=True,
-    #minimum_channel_threshold=dx**2,
-)
-prf2 = ChannelProfiler(
-    grid2,
-    number_of_watersheds=4,
-    main_channel_only=True,
-    #minimum_channel_threshold=dx**2,
-)
+# prf1 = ChannelProfiler(
+#     grid1,
+#     number_of_watersheds=4,
+#     main_channel_only=True,
+#     #minimum_channel_threshold=dx**2,
+# )
+# prf2 = ChannelProfiler(
+#     grid2,
+#     number_of_watersheds=4,
+#     main_channel_only=True,
+#     #minimum_channel_threshold=dx**2,
+# )
 
-prf3 = ChannelProfiler(
-    grid3,
-    number_of_watersheds=4,
-    main_channel_only=True,
-    #minimum_channel_threshold=dx**2,
-)
-prf1.run_one_step()
-prf2.run_one_step()
-prf3.run_one_step()
-#%%
-fig, ax = plt.subplots(nrows=2, ncols=3, figsize=(10,4))
-for i, outlet_id in enumerate(prf1.data_structure):
-    for j, segment_id in enumerate(prf1.data_structure[outlet_id]):
-        if j == 0:
-            label = f"channel {i + 1}"
-        else:
-            label = "_nolegend_"
-        segment = prf1.data_structure[outlet_id][segment_id]
-        profile_ids = segment["ids"]
-        color = segment["color"]
-        plt.axes(ax[1, 0])
-        plt.plot(
-            prf1.data_structure[outlet_id][segment_id]['distances'],
+# prf3 = ChannelProfiler(
+#     grid3,
+#     number_of_watersheds=4,
+#     main_channel_only=True,
+#     #minimum_channel_threshold=dx**2,
+# )
+# prf1.run_one_step()
+# prf2.run_one_step()
+# prf3.run_one_step()
+# #%%
+# fig, ax = plt.subplots(nrows=2, ncols=3, figsize=(10,4))
+# for i, outlet_id in enumerate(cp1.data_structure):
+#     for j, segment_id in enumerate(cp1.data_structure[outlet_id]):
+#         if j == 0:
+#             label = f"channel {i + 1}"
+#         else:
+#             label = "_nolegend_"
+#         segment = cp1.data_structure[outlet_id][segment_id]
+#         profile_ids = segment["ids"]
+#         color = segment["color"]
+#         plt.axes(ax[1, 0])
+#         plt.plot(
+#             cp1.data_structure[outlet_id][segment_id]['distances'],
 
-            grid1.at_node["topographic__steepest_slope"][profile_ids],
+#             grid1.at_node["topographic__steepest_slope"][profile_ids],
             
-            "-",
-            color=color,
-            label=label,
+#             "-",
+#             color=color,
+#             label=label,
             
-        )
-        plt.axhline(y=0.05)
-        plt.xlabel('distance from outlet (m)')
-        plt.ylabel('slope')
+#         )
+#         plt.axhline(y=0.05)
+#         plt.xlabel('distance from outlet (m)')
+#         plt.ylabel('slope')
         
-        plt.axes(ax[0, 0])
-        plt.plot(
-            #grid1.at_node['distances'][profile_ids],
-            prf1.data_structure[outlet_id][segment_id]['distances'],
-            grid1.at_node["topographic__elevation"][profile_ids],
-            "-",
-            color=color,
-            label=label,
-        )
-        plt.xlabel('distance from outlet (m)')
-        plt.ylabel('elevation (m)')
+#         plt.axes(ax[0, 0])
+#         plt.plot(
+#             #grid1.at_node['distances'][profile_ids],
+#             cp1.data_structure[outlet_id][segment_id]['distances'],
+#             grid1.at_node["topographic__elevation"][profile_ids],
+#             "-",
+#             color=color,
+#             label=label,
+#         )
+#         plt.xlabel('distance from outlet (m)')
+#         plt.ylabel('elevation (m)')
 
-        plt.title('no waterfalls')
+#         plt.title('no waterfalls')
 
-for i, outlet_id in enumerate(prf2.data_structure):
-    for j, segment_id in enumerate(prf2.data_structure[outlet_id]):
-        if j == 0:
-            label = f"channel {i + 1}"
-        else:
-            label = "_nolegend_"
-        segment = prf2.data_structure[outlet_id][segment_id]
-        profile_ids = segment["ids"]
-        color = segment["color"]
-        plt.axes(ax[1, 1])
-        plt.plot(
-            prf2.data_structure[outlet_id][segment_id]['distances'],
+# for i, outlet_id in enumerate(cp2.data_structure):
+#     for j, segment_id in enumerate(cp2.data_structure[outlet_id]):
+#         if j == 0:
+#             label = f"channel {i + 1}"
+#         else:
+#             label = "_nolegend_"
+#         segment = cp2.data_structure[outlet_id][segment_id]
+#         profile_ids = segment["ids"]
+#         color = segment["color"]
+#         plt.axes(ax[1, 1])
+#         plt.plot(
+#             cp2.data_structure[outlet_id][segment_id]['distances'],
 
-            grid2.at_node["topographic__steepest_slope"][profile_ids],
-            "-",
-            color=color,
-            label=label,
+#             grid2.at_node["topographic__steepest_slope"][profile_ids],
+#             "-",
+#             color=color,
+#             label=label,
             
-        )
-        plt.axhline(y=0.05)
-        plt.xlabel('distance from outlet (m)')
-        plt.ylabel('slope')
-        plt.axes(ax[0, 1])
-        plt.plot(
-            prf2.data_structure[outlet_id][segment_id]['distances'],
-            grid2.at_node["topographic__elevation"][profile_ids],
+#         )
+#         plt.axhline(y=0.05)
+#         plt.xlabel('distance from outlet (m)')
+#         plt.ylabel('slope')
+#         plt.axes(ax[0, 1])
+#         plt.plot(
+#             cp2.data_structure[outlet_id][segment_id]['distances'],
+#             grid2.at_node["topographic__elevation"][profile_ids],
 
-            "-",
-            color=color,
-            label=label,
-        )
-        plt.xlabel('distance from outlet (m)')
-        plt.ylabel('elevation (m)')
+#             "-",
+#             color=color,
+#             label=label,
+#         )
+#         plt.xlabel('distance from outlet (m)')
+#         plt.ylabel('elevation (m)')
 
-        plt.title('fast waterfalls')
+#         plt.title('fast waterfalls')
 
         
         
-for i, outlet_id in enumerate(prf3.data_structure):
-    for j, segment_id in enumerate(prf3.data_structure[outlet_id]):
-        if j == 0:
-            label = f"channel {i + 1}"
-        else:
-            label = "_nolegend_"
-        segment = prf3.data_structure[outlet_id][segment_id]
-        profile_ids = segment["ids"]
-        color = segment["color"]
-        plt.axes(ax[1,2])
-        plt.plot(
-            segment['distances'],
+# for i, outlet_id in enumerate(cp3.data_structure):
+#     for j, segment_id in enumerate(cp3.data_structure[outlet_id]):
+#         if j == 0:
+#             label = f"channel {i + 1}"
+#         else:
+#             label = "_nolegend_"
+#         segment = cp3.data_structure[outlet_id][segment_id]
+#         profile_ids = segment["ids"]
+#         color = segment["color"]
+#         plt.axes(ax[1,2])
+#         plt.plot(
+#             segment['distances'],
 
-            grid3.at_node["topographic__steepest_slope"][profile_ids],
-            "-",
-            color=color,
-            label=label,
+#             grid3.at_node["topographic__steepest_slope"][profile_ids],
+#             "-",
+#             color=color,
+#             label=label,
             
-        )
-        plt.axhline(y=0.05)
-        plt.xlabel('distance from outlet (m)')
-        plt.ylabel('slope')
+#         )
+#         plt.axhline(y=0.05)
+#         plt.xlabel('distance from outlet (m)')
+#         plt.ylabel('slope')
 
 
-        plt.axes(ax[0, 2])
-        plt.plot(
-            prf3.data_structure[outlet_id][segment_id]['distances'],
+#         plt.axes(ax[0, 2])
+#         plt.plot(
+#             cp3.data_structure[outlet_id][segment_id]['distances'],
 
-            grid3.at_node["topographic__elevation"][profile_ids],
+#             grid3.at_node["topographic__elevation"][profile_ids],
 
-            "-",
-            color=color,
-            label=label,
-        )
-        plt.xlabel('distance from outlet (m)')
-        plt.ylabel('elevation (m)')
+#             "-",
+#             color=color,
+#             label=label,
+#         )
+#         plt.xlabel('distance from outlet (m)')
+#         plt.ylabel('elevation (m)')
 
-        plt.title('slow waterfalls')
+#         plt.title('slow waterfalls')
+
+
+#%% Chi Calaculations
+cf1 = ChiFinder(
+     grid1,
+     min_drainage_area=500000.,
+     use_true_dx=True,
+     reference_concavity=0.5,
+     reference_area=grid1.at_node['drainage_area'].max(),
+     clobber=True)
+
+cf2 = ChiFinder(
+     grid2,
+     min_drainage_area=500000.,
+     use_true_dx=True,
+     reference_concavity=0.5,
+     reference_area=grid2.at_node['drainage_area'].max(),
+     clobber=True)
+
+cf3 = ChiFinder(
+     grid3,
+     min_drainage_area=500000.,
+     use_true_dx=True,
+     reference_concavity=0.5,
+     reference_area=grid3.at_node['drainage_area'].max(),
+     clobber=True)
+
+cf1.calculate_chi()
+cf2.calculate_chi()
+cf3.calculate_chi()
 #%%Pulling out a profile as an array
 fig, ax = plt.subplots(nrows=2, ncols=3, figsize=(10,4))
 nowfprf={}
-for i, outlet_id in enumerate(prf1.data_structure):
+for i, outlet_id in enumerate(cp1.data_structure):
     nowfprf['dist'+str(i)]=np.zeros(0)
     #slowelev1=np.zeros(0)
-    for j, segment_id in enumerate(prf1.data_structure[outlet_id]):
-        totprof = prf1.data_structure[outlet_id][segment_id]
+    for j, segment_id in enumerate(cp1.data_structure[outlet_id]):
+        totprof = cp1.data_structure[outlet_id][segment_id]
         totprofid=totprof["ids"]
-    
+        nowfprf['chi'+str(i)]=grid1.at_node['channel__chi_index'][totprofid]
+
         nowfprf['elev'+str(i)]=grid1.at_node['topographic__elevation'][totprofid]
-        dist=prf1.data_structure[outlet_id][segment_id]["distances"]
+        dist=cp1.data_structure[outlet_id][segment_id]["distances"]
         nowfprf['da'+str(i)]=grid1.at_node['drainage_area'][totprofid]
         
         nowfprf['dist'+str(i)] = np.concatenate((nowfprf['dist'+str(i)], dist))
@@ -497,7 +648,7 @@ for i, outlet_id in enumerate(prf1.data_structure):
     nowfprf['slope'+str(i)]=np.zeros(Nnodes)
     nowfprf['slope'+str(i)][1:(Nnodes)] = (1/dx)*(nowfprf['elev'+str(i)][1:(Nnodes)] - nowfprf['elev'+str(i)][0:(Nnodes-1)]) 
 
-for i in range(0,4):
+for i in range(0,numchannel):
     plt.axes(ax[0,0])
     plt.plot(nowfprf['dist'+str(i)], nowfprf['elev'+str(i)])
     plt.title('No WFs')
@@ -512,24 +663,25 @@ for i in range(0,4):
 
     
 fastwfprf={}
-for i, outlet_id in enumerate(prf2.data_structure):
+for i, outlet_id in enumerate(cp2.data_structure):
     fastwfprf['dist'+str(i)]=np.zeros(0)
     #slowelev1=np.zeros(0)
-    for j, segment_id in enumerate(prf2.data_structure[outlet_id]):
-        totprof = prf2.data_structure[outlet_id][segment_id]
+    for j, segment_id in enumerate(cp2.data_structure[outlet_id]):
+        totprof = cp2.data_structure[outlet_id][segment_id]
         totprofid=totprof["ids"]
-    
+        fastwfprf['chi'+str(i)]=grid2.at_node['channel__chi_index'][totprofid]
+
         fastwfprf['elev'+str(i)]=grid2.at_node['topographic__elevation'][totprofid]
         fastwfprf['da'+str(i)]=grid2.at_node['drainage_area'][totprofid]
-        dist=prf2.data_structure[outlet_id][segment_id]["distances"]
-        
+        dist=cp2.data_structure[outlet_id][segment_id]["distances"]
+        fastwfprf['chi'+str(i)]=grid2.at_node['channel__chi_index'][totprofid]
         fastwfprf['dist'+str(i)] = np.concatenate((fastwfprf['dist'+str(i)], dist))
     Nnodes=len(fastwfprf['elev'+str(i)])
     fastwfprf['slope'+str(i)]=np.zeros(Nnodes)
     fastwfprf['slope'+str(i)][1:(Nnodes)] = (1/dx)*(fastwfprf['elev'+str(i)][1:(Nnodes)] - fastwfprf['elev'+str(i)][0:(Nnodes-1)]) 
 
 
-for i in range(0,4):
+for i in range(0,numchannel):
     plt.axes(ax[0,1])
     plt.plot(fastwfprf['dist'+str(i)], fastwfprf['elev'+str(i)])
     plt.title('Fast WFs')
@@ -544,22 +696,23 @@ for i in range(0,4):
 
     
 slowwfprf={}
-for i, outlet_id in enumerate(prf3.data_structure):
+for i, outlet_id in enumerate(cp3.data_structure):
     slowwfprf['dist'+str(i)]=np.zeros(0)
     #slowelev1=np.zeros(0)
-    for j, segment_id in enumerate(prf3.data_structure[outlet_id]):
-        totprof = prf3.data_structure[outlet_id][segment_id]
+    for j, segment_id in enumerate(cp3.data_structure[outlet_id]):
+        totprof = cp3.data_structure[outlet_id][segment_id]
         totprofid=totprof["ids"]
-    
+        slowwfprf['chi'+str(i)]=grid3.at_node['channel__chi_index'][totprofid]
+
         slowwfprf['elev'+str(i)]=grid3.at_node['topographic__elevation'][totprofid]
-        dist=prf3.data_structure[outlet_id][segment_id]["distances"]
+        dist=cp3.data_structure[outlet_id][segment_id]["distances"]
         slowwfprf['da'+str(i)]=grid3.at_node['drainage_area'][totprofid]
         slowwfprf['dist'+str(i)] = np.concatenate((slowwfprf['dist'+str(i)], dist))
     Nnodes=len(slowwfprf['elev'+str(i)])
     slowwfprf['slope'+str(i)]=np.zeros(Nnodes)
     slowwfprf['slope'+str(i)][1:(Nnodes)] = (1/dx)*(slowwfprf['elev'+str(i)][1:(Nnodes)] - slowwfprf['elev'+str(i)][0:(Nnodes-1)]) 
 
-for i in range(0,4):
+for i in range(0,numchannel):
     plt.axes(ax[0,2])
     plt.plot(slowwfprf['dist'+str(i)], slowwfprf['elev'+str(i)])
     plt.title('Slow WFs')
@@ -587,32 +740,59 @@ for i in range(0,4):
 #           grid1.at_node["topographic__steepest_slope"],
 #           ".",
 #           label="baseline")
-for i in range(0,3):
+for i in range(0,numchannel):
     plt.loglog(fastwfprf["da"+str(i)],
                fastwfprf["slope"+str(i)],
                ".",
                color='orange',
-               #label="with increase in K with slope"
+               label="with increase in K with slope"
                )
     plt.loglog(slowwfprf["da"+str(i)],
                slowwfprf["slope"+str(i)],
                ".",
                color='blue',
-               #label="with decrease in K with slope"
+               label="with decrease in K with slope"
                )
+    plt.loglog(nowfprf["da"+str(i)],
+               nowfprf["slope"+str(i)],
+               ".",
+               color='grey',
+               label="with decrease in K with slope"
+               )
+    plt.legend()
+    
 
-plt.loglog(fastwfprf["da"+str(3)],
-           fastwfprf["slope"+str(3)],
-           ".",
-           color='orange',
-           label="with increase in K with slope"
-           )
-plt.loglog(slowwfprf["da"+str(3)],
-           slowwfprf["slope"+str(3)],
-           ".",
-           color='blue',
-           label="with decrease in K with slope"
-           )
+
+
+
 plt.legend()
 plt.ylabel("Slope")
 plt.xlabel("Area")
+#%% Chi plots
+
+cf1.calculate_chi()
+cf2.calculate_chi()
+cf3.calculate_chi()
+
+fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(8,3))
+for i in range(0,numchannel):
+    plt.axes(ax[0])
+    plt.plot(nowfprf['chi'+str(i)], nowfprf['elev'+str(i)])
+    ax[0].set_title("baseline")
+    ax[ 0].set_ylim([0, max(grid1.at_node['topographic__elevation'])])
+    plt.ylabel('Elevation (m)')
+    plt.xlabel('Chi')
+    
+    plt.axes(ax[1])
+    plt.plot(fastwfprf['chi'+str(i)], fastwfprf['elev'+str(i)])
+    ax[1].set_title("with increase in K with slope")
+    ax[1].set_ylim([0, max(grid1.at_node['topographic__elevation'])])
+    plt.ylabel('Elevation (m)')
+    plt.xlabel(' Chi')
+    
+    plt.axes(ax[2])
+    plt.plot(slowwfprf['chi'+str(i)], slowwfprf['elev'+str(i)])
+    ax[2].set_title("with decrease in K with slope")
+    ax[2].set_ylim([0, max(grid1.at_node['topographic__elevation'])])
+    plt.ylabel('Elevation (m)')
+    plt.xlabel('Chi')
