@@ -110,7 +110,7 @@ grid3.imshow("topographic__elevation")
 #%%
 # uplift, diffusivity
 U = 1e-3
-D = float(2e-4)
+D = float(2e-4)*10
 
 # range of K and max slope for slp-K linear scaling
 
@@ -178,29 +178,7 @@ tnld3 = TaylorNonLinearDiffuser(
 #ld3 = LinearDiffuser(grid3, linear_diffusivity=D)
 
 #%% Chi Calaculations
-cf1 = ChiFinder(
-     grid1,
-     min_drainage_area=500000.,
-     use_true_dx=True,
-     reference_concavity=0.5,
-     reference_area=grid1.at_node['drainage_area'].max(),
-     clobber=True)
 
-cf2 = ChiFinder(
-     grid2,
-     min_drainage_area=500000.,
-     use_true_dx=True,
-     reference_concavity=0.5,
-     reference_area=grid2.at_node['drainage_area'].max(),
-     clobber=True)
-
-cf3 = ChiFinder(
-     grid3,
-     min_drainage_area=500000.,
-     use_true_dx=True,
-     reference_concavity=0.5,
-     reference_area=grid3.at_node['drainage_area'].max(),
-     clobber=True)
 
 #%%
 #Running the model
@@ -440,10 +418,11 @@ plt.scatter(grid1.x_of_node[(slp3>max_slp) & (da3>500000)], grid1.y_of_node[(slp
 
 
 #%%
-#plt.loglog(grid1.at_node["drainage_area"],
-#           grid1.at_node["topographic__steepest_slope"],
-#           ".",
-#           label="baseline")
+plt.loglog(grid1.at_node["drainage_area"],
+           grid1.at_node["topographic__steepest_slope"],
+           ".",
+           color="grey",
+           label="baseline")
 plt.loglog(grid2.at_node["drainage_area"],
            grid2.at_node["topographic__steepest_slope"],
            ".",
@@ -454,9 +433,26 @@ plt.loglog(grid3.at_node["drainage_area"],
            ".",
            color='blue',
            label="with decrease in K with slope")
+#plt.xlim([500000, 2e7])
 plt.legend()
 plt.ylabel("Slope")
 plt.xlabel("Area")
+#%% Drainage density
+from landlab.components import DrainageDensity
+channels = np.array(grid1.at_node['drainage_area'] > 500000, dtype=np.uint8)
+
+dd = DrainageDensity(grid1,
+                      area_coefficient=1.0,
+                      slope_coefficient=1.0,
+                      area_exponent=1.0,
+                      slope_exponent=0.0,
+                      channelization_threshold=5)
+dd = DrainageDensity(grid1, channel__mask=channels)
+mean_drainage_density = dd.calculate_drainage_density()
+   # >>> np.isclose(mean_drainage_density, 0.3831100571)
+   # True
+
+
 
 #%%
 #Trying to make slope plots
@@ -654,7 +650,7 @@ for i in range(0,numchannel):
     plt.title('No WFs')
     plt.xlabel('Distance Upstream (m)')
     plt.ylabel('Elevation (m)')
-    plt.ylim(0,250)
+    plt.ylim(0,400)
     plt.axes(ax[1,0])
     plt.plot(nowfprf['dist'+str(i)], nowfprf['slope'+str(i)])    
     plt.xlabel('Distance Upstream (m)')
@@ -687,7 +683,7 @@ for i in range(0,numchannel):
     plt.title('Fast WFs')
     plt.xlabel('Distance Upstream (m)')
     plt.ylabel('Elevation (m)')
-    plt.ylim(0,250)
+    plt.ylim(0,400)
     plt.axes(ax[1,1])
     plt.plot(fastwfprf['dist'+str(i)], fastwfprf['slope'+str(i)])    
     plt.xlabel('Distance Upstream (m)')
@@ -718,7 +714,7 @@ for i in range(0,numchannel):
     plt.title('Slow WFs')
     plt.xlabel('Distance Upstream (m)')
     plt.ylabel('Elevation (m)')
-    plt.ylim(0,250)
+    plt.ylim(0,400)
     plt.axes(ax[1,2])
     plt.plot(slowwfprf['dist'+str(i)], slowwfprf['slope'+str(i)])    
     plt.xlabel('Distance Upstream (m)')
@@ -760,7 +756,7 @@ for i in range(0,numchannel):
                label="with decrease in K with slope"
                )
     plt.legend()
-    
+    plt.xlim([500000, 2e8])
 
 
 

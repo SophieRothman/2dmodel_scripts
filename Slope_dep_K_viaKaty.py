@@ -11,13 +11,9 @@ from landlab import  RasterModelGrid
 from landlab.plot.graph import plot_graph
 from landlab.components import LinearDiffuser, TaylorNonLinearDiffuser
 from landlab.components import FlowAccumulator, FastscapeEroder, PriorityFloodFlowRouter
-
-
 from landlab import RasterModelGrid, imshow_grid
 from landlab.components import FlowAccumulator, LinearDiffuser, FastscapeEroder, ChannelProfiler
 from landlab.components import ChiFinder
-
-import rasterio
 
 
 #%%
@@ -75,7 +71,7 @@ grid3.imshow("topographic__elevation")
 #%%
 # uplift, diffusivity
 U = 1e-3
-D = float(2e-4)
+D = float(2e-4)*10
 
 # range of K and max slope for slp-K linear scaling
 
@@ -91,15 +87,28 @@ total_time = 2e6
 dt = 1000
 nts = int(total_time / dt)
 Sc=0.6
+
+import rasterio
 #%%
-K1 = grid1.add_ones("water_erodibility", at="node")
-K1[:] = K_mid
+K3 = grid3.add_ones("water_erodibility", at="node", clobber="True")
+K2 = grid2.add_ones("water_erodibility", at="node", clobber="True")
+K1 = grid1.add_ones("water_erodibility", at="node", clobber="True")
+#%%
+i=2
+ny=np.arange(0,len(grid2.at_node["water_erodibility"])+30)
+nm=np.arange(0,len(grid2.at_node["water_erodibility"])+30)
+ny=.3*np.sin(38*ny[i:len(grid2.at_node["water_erodibility"])+i])
+nm=.0015*np.sin(10*nm[i:len(grid2.at_node["water_erodibility"])+i])
+kvar=(ny*nm[0:len(grid2.at_node["water_erodibility"])])/200
+kvar[kvar>0]=0
+plt.plot(kvar)
+#%%
+K1[:] = K_mid+kvar
 
-K2 = grid2.add_ones("water_erodibility", at="node")
-K2[:] = K_mid
+K2[:] = K_mid+kvar
 
-K3 = grid3.add_ones("water_erodibility", at="node")
-K3[:] = K_mid
+K3[:] = K_mid+kvar
+grid1.imshow("water_erodibility")
 #%%
 # save ouput
 
@@ -109,7 +118,6 @@ n_out = int(nts / interval)
 z1_out = np.empty((n_out, grid1.shape[0], grid1.shape[1]))
 z2_out = np.empty((n_out, grid2.shape[0], grid2.shape[1]))
 z3_out = np.empty((n_out, grid3.shape[0], grid3.shape[1]))
-
 
 #%%
 fr1 = PriorityFloodFlowRouter(grid1, flow_metric="D8", suppress_out= True)
@@ -138,29 +146,6 @@ ld3 = LinearDiffuser(grid3, linear_diffusivity=D)
 #ld3 = LinearDiffuser(grid3, linear_diffusivity=D)
 
 #%% Chi Calaculations
-cf1 = ChiFinder(
-     grid1,
-     min_drainage_area=500000.,
-     use_true_dx=True,
-     reference_concavity=0.5,
-     reference_area=grid1.at_node['drainage_area'].max(),
-     clobber=True)
-
-cf2 = ChiFinder(
-     grid2,
-     min_drainage_area=500000.,
-     use_true_dx=True,
-     reference_concavity=0.5,
-     reference_area=grid2.at_node['drainage_area'].max(),
-     clobber=True)
-
-cf3 = ChiFinder(
-     grid3,
-     min_drainage_area=500000.,
-     use_true_dx=True,
-     reference_concavity=0.5,
-     reference_area=grid3.at_node['drainage_area'].max(),
-     clobber=True)
 
 #%%
 #Running the model
@@ -208,12 +193,12 @@ for i in range(0,nts):
     da2 = grid2.at_node["drainage_area"].copy()
 
     
-    grid2.at_node["water_erodibility"][:] = K_mid    
-    grid2.at_node["water_erodibility"][(da2>500000) & (slp2>max_slp)] = K_max
+    grid2.at_node["water_erodibility"][:] = kvar+K_mid    
+    grid2.at_node["water_erodibility"][(da2>500000) & (slp2>max_slp)] = kvar[(da2>500000) & (slp2>max_slp)]+K_max
 
 
-    grid3.at_node["water_erodibility"][:] = K_mid
-    grid3.at_node["water_erodibility"][(da3>500000) & (slp3>max_slp)] = K_min
+    grid3.at_node["water_erodibility"][:] = K_mid+kvar
+    grid3.at_node["water_erodibility"][(da3>500000) & (slp3>max_slp)] = kvar[(da3>500000) & (slp3>max_slp)]+K_min
     
     #slp3[slp3 > max_slp] = max_slp
     #slp3[slp3 < min_slp] = min_slp
@@ -615,7 +600,7 @@ for i in range(0,numchannel):
     plt.title('No WFs')
     plt.xlabel('Distance Upstream (m)')
     plt.ylabel('Elevation (m)')
-    plt.ylim(0,250)
+    plt.ylim(0,400)
     plt.axes(ax[1,0])
     plt.plot(nowfprf['dist'+str(i)], nowfprf['slope'+str(i)])    
     plt.xlabel('Distance Upstream (m)')
@@ -648,7 +633,7 @@ for i in range(0,numchannel):
     plt.title('Fast WFs')
     plt.xlabel('Distance Upstream (m)')
     plt.ylabel('Elevation (m)')
-    plt.ylim(0,250)
+    plt.ylim(0,400)
     plt.axes(ax[1,1])
     plt.plot(fastwfprf['dist'+str(i)], fastwfprf['slope'+str(i)])    
     plt.xlabel('Distance Upstream (m)')
@@ -679,12 +664,32 @@ for i in range(0,numchannel):
     plt.title('Slow WFs')
     plt.xlabel('Distance Upstream (m)')
     plt.ylabel('Elevation (m)')
-    plt.ylim(0,250)
+    plt.ylim(0,400)
     plt.axes(ax[1,2])
     plt.plot(slowwfprf['dist'+str(i)], slowwfprf['slope'+str(i)])    
     plt.xlabel('Distance Upstream (m)')
     plt.ylabel('Slope (m/m)')
     plt.axhline(y=0.05)
+    
+#%%
+from landlab.components import DrainageDensity
+channels1 = np.array(grid1.at_node['drainage_area'] > 500000, dtype=np.uint8)
+channels2 = np.array(grid2.at_node['drainage_area'] > 500000, dtype=np.uint8)
+channels3 = np.array(grid3.at_node['drainage_area'] > 500000, dtype=np.uint8)
+
+
+dd1 = DrainageDensity(grid1, channel__mask=channels1)
+mean_dd_nowf = dd1.calculate_drainage_density()
+   # >>> np.isclose(mean_drainage_density, 0.3831100571)
+   # True
+dd2 = DrainageDensity(grid2, channel__mask=channels2)
+mean_dd_fast = dd2.calculate_drainage_density()
+dd3 = DrainageDensity(grid3, channel__mask=channels3)
+mean_dd_slow = dd3.calculate_drainage_density()
+
+plt.bar([0,1,2], [mean_dd_nowf, mean_dd_fast, mean_dd_slow])
+plt.ylabel('Drainage Density')
+plt.xlabel('no wf                fast wf                  slow wf')
 
 #%% zoom in on dynamic zone
 for i in range(0,4):

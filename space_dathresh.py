@@ -23,7 +23,7 @@ from landlab.components import ChiFinder
 #%%
 # Set grid parameters
 nr = 60
-nc = 50
+vnc = 50
 dx = 75
 
 # track sediment flux at the node adjacent to the outlet at lower-left
@@ -226,8 +226,7 @@ run_time = 1.8e6 # years
 sed_flux = np.zeros(int(run_time // timestep))
 
 # Uplift rate in m/yr
-U = 1e-3
-
+U = 1e-5
 cmap = copy.copy(mpl.cm.get_cmap("terrain"))
         
 while elapsed_time < run_time:  # time units of years
