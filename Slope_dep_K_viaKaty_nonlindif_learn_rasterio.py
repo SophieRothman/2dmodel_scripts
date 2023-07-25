@@ -108,21 +108,43 @@ grid3.set_watershed_boundary_condition_outlet_id(0, grid3.at_node['topographic__
 
 grid3.imshow("topographic__elevation")
 #%%
+# zreshape1=np.zeros((nr, nc))
+
+# #read in the random noise into the 2D array
+# for i in range(0, grid1.number_of_node_rows):
+#     zreshape1[i,0:grid1.number_of_node_columns]=grid1.at_node["topographic__elevation"][grid1.number_of_node_columns*i:grid1.number_of_node_columns*(i+1)]
+
+# #Tilt the 2D array
+# for i in range(0, nr):
+#     zreshape1[i,:]=zreshape1[i,:]+(((0*i)/nr))
+# for j in range(0, nc):
+#     zreshape1[:, j]=zreshape1[:,j]+(((0*j)/nc))
+
+# #Now reshape back to a 1D array
+# for i in range(0, nr):
+#     z1[(grid1.number_of_node_columns*(i)):(grid1.number_of_node_columns*(i+1))]=zreshape1[i, :]
+# grid1.imshow("topographic__elevation")
+# # If that works, copy this grid to z2 and z3
+# grid2.at_node["topographic__elevation"]=np.copy(z1)
+# grid3.at_node["topographic__elevation"]=np.copy(z1[:])
+# grid2.imshow("topographic__elevation")
+
+#%%
 # uplift, diffusivity
-U = 1e-3
-D = float(2e-4)*10
+U = 5e-4
+D = float(2e-4)*250
 
 # range of K and max slope for slp-K linear scaling
 
 
-K_min = float(0.5e-5)
-K_max = float(2e-5)
-K_mid = float(1e-5)
+K_min = float(5e-7)*20
+K_max = float(2e-6)*20
+K_mid = float(1e-6)*20
 max_slp = 0.05
 min_slp = 0.02
 
 # timestep
-total_time = 2e6
+total_time = 5e6
 dt = 1000
 nts = int(total_time / dt)
 Sc=0.6
@@ -147,7 +169,8 @@ z3_out = np.empty((n_out, grid3.shape[0], grid3.shape[1]))
 
 
 #%%
-fr1 = PriorityFloodFlowRouter(grid1, flow_metric="D8", suppress_out= True)
+thresh=0
+fr1 = PriorityFloodFlowRouter(grid1, flow_metric="D8",  suppress_out= True)
 fr2 = PriorityFloodFlowRouter(grid2, flow_metric="D8", suppress_out= True)
 fr3 = PriorityFloodFlowRouter(grid3, flow_metric="D8", suppress_out= True)
 
@@ -177,10 +200,11 @@ tnld3 = TaylorNonLinearDiffuser(
 
 #ld3 = LinearDiffuser(grid3, linear_diffusivity=D)
 
-#%% Chi Calaculations
-
-
 #%%
+dathresh=0
+stp1 = grid1.add_zeros("stream_power", at="node", clobber="True")
+stp2 = grid2.add_zeros("stream_power", at="node", clobber="True")
+stp3 = grid3.add_zeros("stream_power", at="node", clobber="True")
 #Running the model
 elapsed_time=0.0
 for i in range(0,nts):
@@ -227,11 +251,11 @@ for i in range(0,nts):
 
     
     grid2.at_node["water_erodibility"][:] = K_mid    
-    grid2.at_node["water_erodibility"][(da2>500000) & (slp2>max_slp)] = K_max
+    grid2.at_node["water_erodibility"][ (slp2>max_slp)] = K_max
 
 
     grid3.at_node["water_erodibility"][:] = K_mid
-    grid3.at_node["water_erodibility"][(da3>500000) & (slp3>max_slp)] = K_min
+    grid3.at_node["water_erodibility"][ (slp3>max_slp)] = K_min
     
     #slp3[slp3 > max_slp] = max_slp
     #slp3[slp3 < min_slp] = min_slp
@@ -252,6 +276,11 @@ for i in range(0,nts):
     sp3.run_one_step(dt)
     tnld3.run_one_step(dt)
     elapsed_time+=dt
+    if elapsed_time==1e5:
+         thresh=1.5e-3
+         sp3 = FastscapeEroder(grid3, K_sp="water_erodibility", threshold_sp=thresh)
+         sp2 = FastscapeEroder(grid2, K_sp="water_erodibility", threshold_sp=thresh)
+         sp1 = FastscapeEroder(grid1, K_sp="water_erodibility", threshold_sp=thresh)
 
     if i % interval == 0:
         ind = int(i / interval)
@@ -259,22 +288,42 @@ for i in range(0,nts):
         z2_out[ind, :, :] = z2.reshape(grid2.shape)
         z3_out[ind, :, :] = z3.reshape(grid3.shape)
         
-    if np.mod(elapsed_time, (total_time/5))==0:
+    if np.mod(elapsed_time, (total_time/10))==0:
+        stp1=grid1.at_node["water_erodibility"]* (grid1.at_node['drainage_area']**.5) *grid1.at_node['topographic__steepest_slope']
+        stp2=grid2.at_node["water_erodibility"]* (grid2.at_node['drainage_area']**.5) *grid2.at_node['topographic__steepest_slope']
+        stp3=grid3.at_node["water_erodibility"]* (grid3.at_node['drainage_area']**.5) *grid3.at_node['topographic__steepest_slope']
+
         cmap='winter'
         print('%.2f of model run completed' %(elapsed_time/total_time))
         plt.figure()
         imshow_grid(grid1, 'topographic__elevation', plot_name="no waterfalls", cmap = cmap, colorbar_label="Elevation (m)")
+        plt.scatter(grid1.x_of_node[stp1>(thresh)], grid1.y_of_node[stp1>(thresh)], c='red',marker='.')
         plt.show()
         plt.figure()
         imshow_grid(grid2, 'topographic__elevation', plot_name="fast waterfalls", cmap = cmap, colorbar_label="Elevation (m)")
+        plt.scatter(grid2.x_of_node[stp2>(thresh)], grid2.y_of_node[stp2>(thresh)], c='red',marker='.')
 
         plt.show()
                     
         plt.figure()
         imshow_grid(grid3, 'topographic__elevation', plot_name="slow waterfalls", cmap = cmap, colorbar_label="Elevation (m)")
+        plt.scatter(grid3.x_of_node[stp3>(thresh)], grid3.y_of_node[stp3>(thresh)], c='red',marker='.')
 
         plt.show()
-        
+#%%stream power
+
+stp1=grid1.at_node["water_erodibility"]* (grid1.at_node['drainage_area']**.5) *grid1.at_node['topographic__steepest_slope']
+stp2=grid2.at_node["water_erodibility"]* (grid2.at_node['drainage_area']**.5) *grid2.at_node['topographic__steepest_slope']
+stp3=grid3.at_node["water_erodibility"]* (grid3.at_node['drainage_area']**.5) *grid3.at_node['topographic__steepest_slope']
+
+imshow_grid(grid2,
+            stp2,
+            plot_name="baseline",
+            vmin=1e-6,
+            vmax=2e-3,
+            cmap='gist_earth')   
+
+
     #%%
 plt.plot(grid1.at_node["topographic__steepest_slope"][grid1.core_nodes],
          grid1.at_node["water_erodibility"][grid1.core_nodes],
@@ -310,7 +359,7 @@ imshow_grid(grid1,
             vmin=0,
             vmax=elev_max,
             cmap='gist_earth')          
-plt.scatter(grid1.x_of_node[(slp1>max_slp) & (da1>500000)], grid1.y_of_node[(slp1>max_slp) & (da1>500000)], c='red',marker='.')
+#plt.scatter(grid1.x_of_node[stp1>thresh], grid1.y_of_node[stp1>thresh], c='red',marker='.')
 
 plt.figure()
 imshow_grid(grid2,
@@ -319,7 +368,7 @@ imshow_grid(grid2,
             vmin=0,
             vmax=elev_max,
             cmap='gist_earth')
-plt.scatter(grid2.x_of_node[(slp2>max_slp) & (da2>500000)], grid2.y_of_node[(slp2>max_slp) & (da2>500000)], c='red',marker='.')
+#plt.scatter(grid2.x_of_node[stp2>(thresh)], grid2.y_of_node[stp2>(thresh)], c='red',marker='.')
 
 
 plt.figure()
@@ -329,7 +378,7 @@ imshow_grid(grid3,
             vmin=0,
             vmax=elev_max,
             cmap='gist_earth')
-plt.scatter(grid3.x_of_node[(slp3>max_slp) & (da3>500000)], grid3.y_of_node[(slp3>max_slp) & (da3>500000)], c='red',marker='.')
+#plt.scatter(grid3.x_of_node[stp3>(thresh)], grid3.y_of_node[stp3>(thresh)], c='red',marker='.')
 
 
 #%%
@@ -418,6 +467,11 @@ plt.scatter(grid1.x_of_node[(slp3>max_slp) & (da3>500000)], grid1.y_of_node[(slp
 
 
 #%%
+plt.loglog(grid3.at_node["drainage_area"],
+          grid3.at_node["topographic__steepest_slope"],
+          ".",
+          color='blue',
+          label="with decrease in K with slope")
 plt.loglog(grid1.at_node["drainage_area"],
            grid1.at_node["topographic__steepest_slope"],
            ".",
@@ -428,11 +482,7 @@ plt.loglog(grid2.at_node["drainage_area"],
            ".",
            color='orange',
            label="with increase in K with slope")
-plt.loglog(grid3.at_node["drainage_area"],
-           grid3.at_node["topographic__steepest_slope"],
-           ".",
-           color='blue',
-           label="with decrease in K with slope")
+
 #plt.xlim([500000, 2e7])
 plt.legend()
 plt.ylabel("Slope")

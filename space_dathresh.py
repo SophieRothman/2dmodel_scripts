@@ -13,7 +13,7 @@ from landlab.components import PriorityFloodFlowRouter
 from landlab.components import SpaceLargeScaleEroder  # SPACE model
 
 # BedrockLandslider model
-from landlab.components import BedrockLandslider, ChannelProfiler  # BedrockLandslider model
+from landlab.components import BedrockLandslider, ChannelProfiler, TaylorNonLinearDiffuser # BedrockLandslider model
 
 ## Import Landlab utilities
 
@@ -23,8 +23,8 @@ from landlab.components import ChiFinder
 #%%
 # Set grid parameters
 nr = 60
-vnc = 50
-dx = 75
+nc = 50
+dx = 50
 
 # track sediment flux at the node adjacent to the outlet at lower-left
 node_next_to_outlet = nc + 1
