@@ -58,18 +58,18 @@ cmap = copy.copy(mpl.cm.get_cmap("terrain"))
 
 max_rate=3e-3  #max soil production rate
 dec_depth=.34   #depth of soil production
-D=(5e-2)  #Transport rate
+D=(5e-3)  #Transport rate
 scrit=.6
 
 
-Ks_min=float(2.5e-4) 
-Ks_max=float(1e-3)
-Ks_mid=float(6e-5)   #K for sediment for baseline model
+Ks_min=float(.6e-4) 
+Ks_max=float(2.4e-4)
+Ks_mid=float(1.2e-4)   #K for sediment for baseline model
 
 
-K_min = float(3e-6)
-K_max = float(1.2e-5)
-K_mid = float(6e-6)#6)    #K for rock for baseline model
+K_min = float(.6e-5)
+K_max = float(2.4e-5)
+K_mid = float(1.2e-5)#6)    #K for rock for baseline model
 m=0.45
 n=1
 max_slp = 0.05  #critical slope
@@ -131,10 +131,10 @@ for i in range(0 , 2000):#int(run_time/timestep)):
     #mg1.at_node['soil__depth'][mg1.core_nodes]-=dqdx[mg1.core_nodes]*timestep
 #%%
 
-#np.savetxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastscape_ss__u4e4k6e6_fastzbr.txt", bdr_z)
+#np.savetxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastscape_ss__u4e4k1_2e5_fastscape_z.txt", z1)
 
-zmaybe=np.loadtxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastscape_ss__u4e4k6e6.txt")
-
+#zmaybe=np.loadtxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastscape_ss__u4e4k6e6.txt")
+zmaybe=np.loadtxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastscape_ss__u4e4k1_2e5_fastscape_z.txt")
 #to open it
 mg1.at_node['topographic__elevation'][:]=zmaybe
 
@@ -222,7 +222,7 @@ currentK=np.ones((len(mg1.at_node['bedrock_erodibility'])))
 elapsed_time=0
 timestep=500
 imshow_grid(mg1, "topographic__elevation")
-while elapsed_time<int(run_time/2):#int(run_time/timestep)):#int(run_time/timestep)):
+while elapsed_time<int(run_time/1.7):#int(run_time/timestep)):#int(run_time/timestep)):
 #for i in range(0,5):
     elapsed_time+=timestep
     mg1.at_node['bedrock__elevation'][mg1.core_nodes] += U * timestep #uplfit
@@ -247,7 +247,7 @@ while elapsed_time<int(run_time/2):#int(run_time/timestep)):#int(run_time/timest
     mg1.at_node["topographic__elevation"][mg1.core_nodes][:] = (
         mg1.at_node["bedrock__elevation"][mg1.core_nodes] + mg1.at_node["soil__depth"][mg1.core_nodes]
     )
-    mg1.at_node["bedrock_erodibility"][:] = K_mid
+    mg1.at_node["bedrock_erodibility"][:] = K_mid#*currentK
     mg1.at_node["bedrock_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = K_max#*currentK[ (slp1>max_slp) & (da1>dathresh)]
 
     
@@ -259,34 +259,34 @@ while elapsed_time<int(run_time/2):#int(run_time/timestep)):#int(run_time/timest
     sp1.run_one_step(timestep)
     
     # if np.mod(elapsed_time, 20)==0:
-    #     Kbr = mg1.add_ones("bedrock_erodibility", at="node", clobber=True)
-    #     num1=np.random.rand(1)*10
-    #     num2=np.random.rand(1)*10
-    #     num3=np.random.rand(1)*10
-    #     ny=np.arange(0,len(mg1.at_node['bedrock_erodibility'])+30)
-    #     nm=np.arange(0,len(mg1.at_node['bedrock_erodibility'])+30)
-    #     ny=.5*np.sin(38*ny[int(num1[0]):len(mg1.at_node['bedrock_erodibility'])+int(num1[0])])
-    #     nm=.002*np.sin(10*nm[int(num2[0]):len(mg1.at_node['bedrock_erodibility'])+int(num2[0])])
-    #     kvar=(ny[0:len(mg1.at_node['bedrock_erodibility'])]*nm[0:len(mg1.at_node['bedrock_erodibility'])])*600
-    #     #kvar[kvar>0]=0
-    #     Kbr[:]=kvar
-    #     #plt.plot(kvar)
-        
-    #     #for i in dx*np.arange(0, nr):
-    #     #    grid2.at_node['water_erodibility'][grid2.y_of_node==i]=grid2.at_node['water_erodibility'][grid2.y_of_node==i]*.5*np.sin(38*(grid2.x_of_node[grid2.y_of_node==i]/dx +1))*np.sin(8*(grid2.x_of_node[grid2.y_of_node==i]/dx))
-    #     for i in dx*np.arange(0, nc):
-    #         mg1.at_node['bedrock_erodibility'][mg1.x_of_node==i]=mg1.at_node['bedrock_erodibility'][mg1.x_of_node==i]*np.sin(.7*(mg1.y_of_node[mg1.x_of_node==i]/dx +int(num3[0])))+1
-    #     #mg1.at_node['bedrock_erodibility']
+    #      Kb = mg1.add_ones("erodibility", at="node", clobber=True)
+    #      num1=np.random.rand(1)*10
+    #      num2=np.random.rand(1)*10
+    #      num3=np.random.rand(1)*10
+    #      ny=np.arange(0,len(mg1.at_node['bedrock_erodibility'])+30)
+    #      nm=np.arange(0,len(mg1.at_node['bedrock_erodibility'])+30)
+    #      ny=.5*np.sin(38*ny[int(num1[0]):len(mg1.at_node['bedrock_erodibility'])+int(num1[0])])
+    #      nm=.002*np.sin(10*nm[int(num2[0]):len(mg1.at_node['bedrock_erodibility'])+int(num2[0])])
+    #      kvar=(ny[0:len(mg1.at_node['bedrock_erodibility'])]*nm[0:len(mg1.at_node['bedrock_erodibility'])])*600
+    #      #kvar[kvar>0]=0
+    #      Kb[:]=kvar
+    #      #plt.plot(kvar)
+         
+    #      #for i in dx*np.arange(0, nr):
+    #      #    grid2.at_node['water_erodibility'][grid2.y_of_node==i]=grid2.at_node['water_erodibility'][grid2.y_of_node==i]*.5*np.sin(38*(grid2.x_of_node[grid2.y_of_node==i]/dx +1))*np.sin(8*(grid2.x_of_node[grid2.y_of_node==i]/dx))
+    #      for i in dx*np.arange(0, nc):
+    #          mg1.at_node['erodibility'][mg1.x_of_node==i]=mg1.at_node['erodibility'][mg1.x_of_node==i]*np.sin(.7*(mg1.y_of_node[mg1.x_of_node==i]/dx +int(num3[0])))+1
+    #      #mg1.at_node['bedrock_erodibility']
 
-    #     # plt.figure()
-    #     # plt.plot(Kbr)
-    #     # plt.show()
-    #     currentK=np.copy(Kbr)
+    #      # plt.figure()
+    #      # plt.plot(Kb)
+    #      # plt.show()
+    #      currentK=np.copy(Kb)
 
-    #     mg1.at_node["bedrock_erodibility"][:] = K_mid#*currentK
-    #     mg1.at_node["bedrock_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = K_max#*currentK[ (slp1>max_slp) & (da1>dathresh)] 
-    #     mg1.at_node["sediment_erodibility"][:] = Ks_mid
-    #     mg1.at_node["sediment_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = Ks_max
+    #      mg1.at_node["bedrock_erodibility"][:] = K_mid *currentK
+    #      mg1.at_node["bedrock_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = K_min*currentK[ (slp1>max_slp) & (da1>dathresh)] 
+    #      mg1.at_node["sediment_erodibility"][:] = Ks_mid
+    #      mg1.at_node["sediment_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = Ks_min
 
 
     
@@ -658,4 +658,4 @@ fast_res=np.array=([nowfprf['dist0'],
           nowfprf['soil_d0'],
           nowfprf['da0'],
           nowfprf['chi0']])
-np.savetxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\nwf__u5e3k6e6_dict.txt", fast_res)
+#np.savetxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastwf__u5e3k2_4e4_dict.txt", fast_res)
