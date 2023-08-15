@@ -19,7 +19,7 @@ from landlab.components import PriorityFloodFlowRouter, FastscapeEroder, Exponen
 from landlab.components import SpaceLargeScaleEroder, ChiFinder # SPACE model
 
 # BedrockLandslider model
-from landlab.components import BedrockLandslider, ChannelProfiler, ExponentialWeathererIntegrated  # BedrockLandslider model
+from landlab.components import BedrockLandslider, ChannelProfiler, ExponentialWeathererIntegrated, LinearDiffuser # BedrockLandslider model
 
 ## Import Landlab utilities
 
@@ -51,9 +51,9 @@ cmap = copy.copy(mpl.cm.get_cmap("terrain"))
 
 
 
-max_rate=3e-5  #max soil production rate
+max_rate=3e-4  #max soil production rate
 dec_depth=.34   #depth of soil production
-D=(1e-3)  #Transport rate
+D=(1e-4)  #Transport rate
 scrit=.6
 
 
@@ -106,7 +106,7 @@ fsc1=FastscapeEroder(mg1, K_sp=K, m_sp=.45, n_sp=1 )
 
 #%% burn in initial topography
 
-for i in range(0 , 15000):#int(run_time/timestep)):
+for i in range(0 , 4000):#int(run_time/timestep)):
     z1[mg1.core_nodes] += U * timestep #uplfit
     fr.run_one_step()          #route flow
     fsc1.run_one_step(timestep) #erode
@@ -117,7 +117,7 @@ for i in range(0 , 15000):#int(run_time/timestep)):
     #mg1.at_node['soil__depth']=+mg1.at_node['soil_production__dt_produced_depth'] #change soil depth from weathering
 #%%
 # add field 'soil__depth' to the grid
-mg1.add_zeros("node", "soil__depth")
+sd=mg1.add_zeros("node", "soil__depth", clobber=True)
 
 
 # Set 2 m of initial soil depth at core nodes
@@ -125,7 +125,7 @@ mg1.at_node["soil__depth"][mg1.core_nodes] = 0  # meters
 
 
 # Add field 'bedrock__elevation' to the grid
-bdr_z=mg1.add_zeros("bedrock__elevation", at="node")
+bdr_z=mg1.add_zeros("bedrock__elevation", at="node", clobber=True)
 
 mg1.at_node["bedrock__elevation"][:] = mg1.at_node["topographic__elevation"]
 
@@ -135,7 +135,9 @@ ex1=ExponentialWeathererIntegrated(mg1, soil_production__maximum_rate=max_rate,
                                    soil_production__expansion_factor=1.5)
 sp1=SpaceLargeScaleEroder(mg1, K_sed=Ks_mid, K_br=K_mid, F_f=0, phi=.6, 
                           H_star=.1, v_s=1, m_sp=.45, n_sp=1 )
-tnld1=TaylorNonLinearDiffuser(mg1, linear_diffusivity=D, slope_crit=scrit, nterms=2)
+ld1=LinearDiffuser(mg1, linear_diffusivity=D, method="simple", deposit="True")
+#br1=BedrockLandslider(mg1, landslides_return_time=1e5)
+tnld1=TaylorNonLinearDiffuser(mg1, linear_diffusivity=D, slope_crit=5, nterms=2)
 #%%check it out
 #imshowhs_grid(mg1, 'topographic__elevation')
 imshow_grid(mg1, "topographic__elevation")
@@ -232,19 +234,27 @@ plt.ylabel('Soil Depth')
 #%% try out new component
 #%% burn in initial topography
 
-for i in range(0 , 500):#int(run_time/timestep)):
+for i in range(0 , 5):#int(run_time/timestep)):
     z1[mg1.core_nodes] += U * timestep #uplfit
     fr.run_one_step()          #route flow
     #fsc1.run_one_step(timestep) #erode
     sp1.run_one_step(timestep)
     #mg1.at_node["bedrock__elevation"][:] = mg1.at_node["topographic__elevation"]
-    #ex1.run_one_step(timestep) #weather 
+    ex1.run_one_step(timestep) #weather 
+    mg1.at_node['soil__depth']+=mg1.at_node['soil_production__dt_produced_depth']
+    mg1.at_node['bedrock__elevation']-=mg1.at_node['soil_production__dt_produced_depth']
+    mg1.at_node['topographic__elevation']=mg1.at_node['bedrock__elevation']+mg1.at_node['soil__depth']
     #mg1.at_node['bedrock__elevation']=mg1.at_node['bedrock__elevation']-mg1.at_node['soil_production__dt_weathered_depth'] #change bedrock elevation from weathering
     #mg1.at_node['soil__depth']=mg1.at_node['soil__depth']+mg1.at_node['soil_production__dt_produced_depth'] #change soil depth from weathering
+    zpre=np.copy(z1)
     tnld1.run_one_step(timestep)
+    zpost=np.copy(z1)
     dqdx=mg1.calc_flux_div_at_node('soil__flux')
     mg1.at_node['topographic__elevation'][mg1.core_nodes]+=dqdx[mg1.core_nodes]*timestep
     mg1.at_node['soil__depth'][mg1.core_nodes]-=dqdx[mg1.core_nodes]*timestep
-
+    mask=mg1.at_node['soil__depth']<0
+    mg1.at_node['bedrock__elevation'][mask]-=mg1.at_node['soil__depth'][mask]
+    mg1.at_node['soil__depth'][mask]=0
+    
 
 #%%

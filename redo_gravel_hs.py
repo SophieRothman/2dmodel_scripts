@@ -14,10 +14,10 @@ import matplotlib.pyplot as plt  # For plotting results; optional
 
 ## Import Landlab components
 # Flow routing and depression handling
-from landlab.components import PriorityFloodFlowRouter 
+from landlab.components import PriorityFloodFlowRouter, DepthDependentTaylorDiffuser
 
 #add bedrock weathering
-from landlab.components import ExponentialWeathererIntegrated
+from landlab.components import ExponentialWeathererIntegrated, ExponentialWeatherer
 
 # SPACE model
 from landlab.components import SpaceLargeScaleEroder  # SPACE model
@@ -29,13 +29,13 @@ from landlab.components import BedrockLandslider, ChannelProfiler, TaylorNonLine
 
 from landlab import RasterModelGrid # Grid utility
 from landlab import imshowhs_grid, imshow_grid  # For plotting results; optional
-from landlab.components import ChiFinder, FastscapeEroder
+from landlab.components import ChiFinder, FastscapeEroder, ExponentialWeatherer, BedrockLandslider
 #parameter setup
 # Set grid parameters
 nr = 90
 nc = 70
 dx = 50
-timestep = 1000  # years
+timestep = 500  # years
 
 # Set elapsed time to zero
 elapsed_time = 0.0  # years
@@ -58,7 +58,7 @@ cmap = copy.copy(mpl.cm.get_cmap("terrain"))
 
 max_rate=3e-3  #max soil production rate
 dec_depth=.34   #depth of soil production
-D=(5e-2)  #Transport rate
+D=(1e-4)  #Transport rate
 scrit=.6
 
 
@@ -107,7 +107,7 @@ mg1.set_closed_boundaries_at_grid_edges(
     right_is_closed=True,
     top_is_closed=True,
 )
-mg1.set_watershed_boundary_condition_outlet_id(0, mg1.at_node['topographic__elevation'], -9999.0)
+mg1.set_watershed_boundary_condition_outlet_id(0, mg1.at_node['topographic__elevation'], 0)
 
 
 
@@ -133,11 +133,10 @@ for i in range(0 , 2000):#int(run_time/timestep)):
 
 #np.savetxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastscape_ss__u4e4k1_2e5_fastscape_z.txt", z1)
 
-zmaybe=np.loadtxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastscape_ss__u4e4k6e6.txt")
-#zmaybe=np.loadtxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastscape_ss__u4e4k1_2e5_fastscape_z.txt")
+#zmaybe=np.loadtxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastscape_ss__u4e4k6e6.txt")
+zmaybe=np.loadtxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\fastscape_ss__u4e4k1_2e5_fastscape_z.txt")
 #to open it
 mg1.at_node['topographic__elevation'][:]=zmaybe
-mg1.at_node['soil__depth'][:]=np.loadtxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\slowwf__u5e2k1_2e5_sd.txt")
 
 #%%
 # Sum 'soil__depth' and 'bedrock__elevation'
@@ -146,7 +145,7 @@ bdr_z=mg1.add_zeros("bedrock__elevation", at="node", clobber=True)
 # to yield 'topographic elevation'
 mg1.at_node["bedrock__elevation"][:] = mg1.at_node["topographic__elevation"]
 # add field 'soil__depth' to the grid
-soil_d=mg1.add_zeros("node", "soil__depth", clobber=True)
+soild=mg1.add_zeros("node", "soil__depth", clobber=True)
 
 mg1.at_node["topographic__elevation"][:] += mg1.at_node["soil__depth"]
 
@@ -198,6 +197,8 @@ mg1.at_node["bedrock__elevation"][:] = mg1.at_node["topographic__elevation"]
 # mg1.imshow('bedrock_erodibility')
 # #plt.figure()
 # #plt.plot(Kbr)
+
+
 # #plt.show()
 
 
@@ -208,12 +209,20 @@ plt.show()
 plt.figure()
 imshow_grid(mg1, 'bedrock__elevation', plot_name="elev no waterfalls", cmap = cmap, colorbar_label="Elevation (m)")
 plt.show()
+#%%
+ex1=ExponentialWeathererIntegrated(mg1, soil_production__maximum_rate=max_rate, 
+                                   soil_production__decay_depth=dec_depth,
+                                   soil_production__expansion_factor=1.5)
+#ex1=ExponentialWeatherer(mg1, soil_production_maximum_rate=max_rate, 
+#                         soil_production_decay_depth=dec_depth)
+                    
 
 #%%
 xwf=np.empty([0,0])
 ywf=np.array([])
-tnld1=TaylorNonLinearDiffuser(mg1, linear_diffusivity=D, slope_crit=scrit, nterms=2)
-dathresh=3.6e4
+Dd1=DepthDependentTaylorDiffuser(mg1, linear_diffusivity=D, slope_crit=5, nterms=2)
+
+dathresh=1.6e4
 thresh=0
 
 
@@ -221,15 +230,15 @@ sp1=SpaceLargeScaleEroder(mg1, K_sed=Ks, K_br=Kbr, phi=.6,
                           H_star=.1, v_s=.6, m_sp=.45, n_sp=1,sp_crit_sed=thresh, sp_crit_br=thresh)
 currentK=np.ones((len(mg1.at_node['bedrock_erodibility'])))
 elapsed_time=0
-timestep=500
+timestep=50
 imshow_grid(mg1, "topographic__elevation")
-while elapsed_time<int(run_time/1.7):#int(run_time/timestep)):#int(run_time/timestep)):
-#for i in range(0,5):
+#while elapsed_time<int(run_time/2):#int(run_time/timestep)):#int(run_time/timestep)):
+for i in range(0,100):
     elapsed_time+=timestep
     mg1.at_node['bedrock__elevation'][mg1.core_nodes] += U * timestep #uplfit
 
 
-    fr1.run_one_step()          #route flow
+       #route flow
     #fsc1.run_one_step(timestep) #erode
 
     #mg1.at_node["bedrock__elevation"][:] = mg1.at_node["topographic__elevation"]
@@ -237,29 +246,64 @@ while elapsed_time<int(run_time/1.7):#int(run_time/timestep)):#int(run_time/time
     #mg1.at_node['bedrock__elevation']=mg1.at_node['bedrock__elevation']-mg1.at_node['soil_production__dt_weathered_depth'] #change bedrock elevation from weathering
     #mg1.at_node['soil__depth']=mg1.at_node['soil__depth']+mg1.at_node['soil_production__dt_produced_depth'] #change soil depth from weathering
     
-    tnld1.run_one_step(timestep)
+    
+    
+
+    #mg1.at_node['soil__depth']=mg1.at_node['soil__depth']+mg1.at_node['soil_production__dt_produced_depth']
+    #mg1.at_node['bedrock__elevation']=mg1.at_node['bedrock__elevation']-mg1.at_node['soil_production__dt_produced_depth']
+    #mg1.at_node['topographic__elevation'][mg1.core_nodes]=mg1.at_node['bedrock__elevation'][mg1.core_nodes]+mg1.at_node['soil__depth'][mg1.core_nodes]
+
+    ex1.run_one_step(timestep) #weather 
+
+    
+    Dd1.run_one_step(timestep)
     dqdx=mg1.calc_flux_div_at_node('soil__flux')
-    mg1.at_node['topographic__elevation'][mg1.core_nodes]+=dqdx[mg1.core_nodes]*timestep
-    #mg1.at_node['soil__depth'][dqdx<0]-=dqdx[dqdx<0]*timestep
-    mg1.at_node['soil__depth'][mg1.core_nodes]-=dqdx[mg1.core_nodes]*timestep
-    mask=mg1.at_node['soil__depth']<0
-    mg1.at_node['bedrock__elevation'][mask]+=np.copy(mg1.at_node['soil__depth'][mask])
-    mg1.at_node['soil__depth'][mask]=0
-    mg1.at_node["topographic__elevation"][mg1.core_nodes][:] = (
-        mg1.at_node["bedrock__elevation"][mg1.core_nodes] + mg1.at_node["soil__depth"][mg1.core_nodes]
-    )
+    #mg1.at_node['topographic__elevation'][mg1.core_nodes]+=dqdx[mg1.core_nodes]*timestep
+    ##mg1.at_node['soil__depth'][dqdx<0]-=dqdx[dqdx<0]*timestep
+    #mg1.at_node['soil__depth'][mg1.core_nodes]-=dqdx[mg1.core_nodes]*timestep
+    #mask=mg1.at_node['soil__depth']<0
+    #mg1.at_node['bedrock__elevation'][mask]+=np.copy(mg1.at_node['soil__depth'][mask])
+    #mg1.at_node['soil__depth'][mask]=0
+    #mg1.at_node["topographic__elevation"][mg1.core_nodes][:] = (
+    #    mg1.at_node["bedrock__elevation"][mg1.core_nodes] + mg1.at_node["soil__depth"][mg1.core_nodes]
+    #)
     mg1.at_node["bedrock_erodibility"][:] = K_mid#*currentK
-    mg1.at_node["bedrock_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = K_min#*currentK[ (slp1>max_slp) & (da1>dathresh)]
+    #mg1.at_node["bedrock_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = K_max#*currentK[ (slp1>max_slp) & (da1>dathresh)]
 
     
     mg1.at_node["sediment_erodibility"][:] = Ks_mid
-    mg1.at_node["sediment_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = Ks_min
+    #mg1.at_node["sediment_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = Ks_max
     #introducing threshold
     da1=mg1.at_node["drainage_area"].copy()
     slp1 = mg1.at_node["topographic__steepest_slope"].copy()
+    fr1.run_one_step()   
     sp1.run_one_step(timestep)
+   # mg1.at_node['soil__depth']+=mg1.at_node['soil_production__dt_produced_depth']
+   ## mg1.at_node['bedrock__elevation']-=mg1.at_node['soil_production__dt_weathered_depth']
+    #mg1.at_node['topographic__elevation']=mg1.at_node['soil__depth']+mg1.at_node['bedrock__elevation']
     
-    # if np.mod(elapsed_time, 20)==0:
+    if np.mod(int(elapsed_time/timestep), 50)==0:
+        plt.figure()
+        imshow_grid(mg1, 'soil_production__dt_produced_depth')
+        plt.title('soil production')
+        plt.show()
+
+        plt.figure()
+        imshow_grid(mg1, 'soil__depth')
+        plt.title('soil depth')
+        plt.show()
+        plt.figure()
+        imshow_grid(mg1, z1-bdr_z)
+        plt.title('soil depth - calced')
+        plt.show()
+        plt.figure()
+        imshow_grid(mg1, bdr_z)
+        plt.title('bedrock elev')
+        plt.show()
+        plt.figure()
+        imshow_grid(mg1, 'topographic__elevation')
+        plt.title('topographic_elevation')
+        plt.show()
     #       Kb = mg1.add_ones("erodibility", at="node", clobber=True)
     #       num1=np.random.rand(1)*10
     #       num2=np.random.rand(1)*10
@@ -284,10 +328,10 @@ while elapsed_time<int(run_time/1.7):#int(run_time/timestep)):#int(run_time/time
     #       # plt.show()
     #       currentK=np.copy(Kb)
 
-    #       mg1.at_node["bedrock_erodibility"][:] = K_mid *currentK
-    #       mg1.at_node["bedrock_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = K_min*currentK[ (slp1>max_slp) & (da1>dathresh)] 
-    #       mg1.at_node["sediment_erodibility"][:] = Ks_mid
-    #       mg1.at_node["sediment_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = Ks_min
+          # mg1.at_node["bedrock_erodibility"][:] = K_mid *currentK
+          # mg1.at_node["bedrock_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = K_min*currentK[ (slp1>max_slp) & (da1>dathresh)] 
+          # mg1.at_node["sediment_erodibility"][:] = Ks_mid
+          # mg1.at_node["sediment_erodibility"][ (slp1>max_slp) & (da1>dathresh)] = Ks_min
 
 
     
@@ -659,4 +703,4 @@ fast_res=np.array=([nowfprf['dist0'],
           nowfprf['soil_d0'],
           nowfprf['da0'],
           nowfprf['chi0']])
-np.savetxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\slowwf__u5e2k1_2e5_sd.txt", soild)
+np.savetxt(r"C:\Users\srothman\Documents\2dmodel_scripts\2dmodel_scripts\slowwf__u5e3k1_2e5_sd.txt", soild)
